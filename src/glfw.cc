@@ -10,20 +10,45 @@ using namespace node;
 
 #include <iostream>
 #include <sstream>
+#include <algorithm>
+
+#include <OVR.h>
+#include <../src/OVR_CAPI_GL.h>
 
 using namespace std;
+
+#define WINAPI __cdecl
 
 namespace glfw {
 
 /* @Module: GLFW initialization, termination and version querying */
+ovrHmd hmd = 0;
+ovrHmdDesc hmdDesc;
+ovrEyeRenderDesc eyeRenderDesc[2];
 
 NAN_METHOD(Init) {
   NanScope();
-  NanReturnValue(JS_BOOL(glfwInit()==1));
+	bool initSuccessful = glfwInit() == 1;
+	if (initSuccessful) {
+		ovr_Initialize();
+		hmd = ovrHmd_Create(0);
+		if (hmd == 0) {
+			hmd = ovrHmd_CreateDebug(ovrHmd_DK2);
+		}
+
+		ovrHmd_GetDesc(hmd, &hmdDesc);
+		ovrHmd_StartSensor(hmd, ovrSensorCap_Orientation | ovrSensorCap_YawCorrection |
+			ovrSensorCap_Position, ovrSensorCap_Orientation);
+	}
+  NanReturnValue(JS_BOOL(initSuccessful));
 }
 
 NAN_METHOD(Terminate) {
   NanScope();
+	if (hmd) {
+		ovrHmd_Destroy(hmd);
+	}
+	ovr_Shutdown();
   glfwTerminate();
   NanReturnUndefined();
 }
@@ -663,6 +688,33 @@ NAN_METHOD(glfw_CreateWindow) {
   NanReturnValue(JS_NUM((uint64_t) window));
 }
 
+NAN_METHOD(EnableHMDRendering) {
+	NanScope();
+	bool success = false;
+	uint64_t handle = args[0]->IntegerValue();
+	if (handle) {
+		GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
+
+		OVR::Sizei recommenedTex0Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left,
+			hmdDesc.DefaultEyeFov[0], 1.0f);
+		OVR::Sizei recommenedTex1Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Right,
+			hmdDesc.DefaultEyeFov[1], 1.0f);		OVR::Sizei renderTargetSize(recommenedTex0Size.w + recommenedTex1Size.w, max(recommenedTex0Size.h, recommenedTex1Size.h));
+
+		ovrGLConfig cfg;
+		cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
+		cfg.OGL.Header.RTSize = OVR::Sizei(hmdDesc.Resolution.w, hmdDesc.Resolution.h);
+		cfg.OGL.Header.Multisample = 0;
+		//cfg.OGL.WglContext = glfwGetWGLContext(window);
+		cfg.OGL.Window = glfwGetWin32Window(window);
+		//cfg.OGL.GdiDc = GetDC(cfg.OGL.Window);
+
+		if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmdDesc.DefaultEyeFov, eyeRenderDesc)) {
+			success = true;
+		}
+	}
+	NanReturnValue(JS_BOOL(success));
+}
+
 NAN_METHOD(DestroyWindow) {
   NanScope();
   uint64_t handle=args[0]->IntegerValue();
@@ -905,7 +957,8 @@ NAN_METHOD(SwapBuffers) {
   uint64_t handle=args[0]->IntegerValue();
   if(handle) {
     GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
-    glfwSwapBuffers(window);
+		//ovrHmd_EndFrame(hmd);
+    //glfwSwapBuffers(window);
   }
   NanReturnUndefined();
 }
@@ -951,6 +1004,9 @@ void init(Handle<Object> target) {
   JS_GLFW_SET_METHOD(Terminate);
   JS_GLFW_SET_METHOD(GetVersion);
   JS_GLFW_SET_METHOD(GetVersionString);
+
+	/* Rift support */
+	JS_GLFW_SET_METHOD(EnableHMDRendering);
 
   /* Time */
   JS_GLFW_SET_METHOD(GetTime);

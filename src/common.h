@@ -10,9 +10,13 @@
 #define GLEW_STATIC
 #include <GL/glew.h>
 
+
 #define GLFW_NO_GLU
 #define GLFW_DLL
+#define GLFW_EXPOSE_NATIVE_WIN32
+#define GLFW_EXPOSE_NATIVE_WGL
 #include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
 
 // NodeJS includes
 #include <node.h>

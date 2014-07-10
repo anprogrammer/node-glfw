@@ -27,10 +27,12 @@
         }],
         ['OS=="win"', {
           'libraries': [
-            'AntTweakBar64.lib',
-            'glew64s.lib', 
+            'AntTweakBar.lib',
+            'glew32s.lib', 
             'glfw3dll.lib', 
-            'opengl32.lib'
+            'opengl32.lib',
+            'winmm.lib',
+            'libovr.lib'
             ],
           'defines' : [
             'WIN32_LEAN_AND_MEAN',
