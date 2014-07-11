@@ -28,27 +28,27 @@ ovrEyeRenderDesc eyeRenderDesc[2];
 
 NAN_METHOD(Init) {
   NanScope();
-	bool initSuccessful = glfwInit() == 1;
-	if (initSuccessful) {
-		ovr_Initialize();
-		hmd = ovrHmd_Create(0);
-		if (hmd == 0) {
-			hmd = ovrHmd_CreateDebug(ovrHmd_DK2);
-		}
+    bool initSuccessful = glfwInit() == 1;
+    if (initSuccessful) {
+        ovr_Initialize();
+        hmd = ovrHmd_Create(0);
+        if (hmd == 0) {
+            hmd = ovrHmd_CreateDebug(ovrHmd_DK2);
+        }
 
-		ovrHmd_GetDesc(hmd, &hmdDesc);
-		ovrHmd_StartSensor(hmd, ovrSensorCap_Orientation | ovrSensorCap_YawCorrection |
-			ovrSensorCap_Position, ovrSensorCap_Orientation);
-	}
+        ovrHmd_GetDesc(hmd, &hmdDesc);
+        ovrHmd_StartSensor(hmd, ovrSensorCap_Orientation | ovrSensorCap_YawCorrection |
+            ovrSensorCap_Position, ovrSensorCap_Orientation);
+    }
   NanReturnValue(JS_BOOL(initSuccessful));
 }
 
 NAN_METHOD(Terminate) {
   NanScope();
-	if (hmd) {
-		ovrHmd_Destroy(hmd);
-	}
-	ovr_Shutdown();
+    if (hmd) {
+        ovrHmd_Destroy(hmd);
+    }
+    ovr_Shutdown();
   glfwTerminate();
   NanReturnUndefined();
 }
@@ -688,31 +688,88 @@ NAN_METHOD(glfw_CreateWindow) {
   NanReturnValue(JS_NUM((uint64_t) window));
 }
 
+ovrGLTexture eyeTexture[2];
+GLuint fboId;
+bool hmdEnabled = false;
+
 NAN_METHOD(EnableHMDRendering) {
-	NanScope();
-	bool success = false;
-	uint64_t handle = args[0]->IntegerValue();
-	if (handle) {
-		GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
+    NanScope();
+    printf("EnableHMDRendering called\n");
+    bool success = false;
+    uint64_t handle = args[0]->IntegerValue();
+    if (handle) {
+        GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
 
-		OVR::Sizei recommenedTex0Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left,
-			hmdDesc.DefaultEyeFov[0], 1.0f);
-		OVR::Sizei recommenedTex1Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Right,
-			hmdDesc.DefaultEyeFov[1], 1.0f);		OVR::Sizei renderTargetSize(recommenedTex0Size.w + recommenedTex1Size.w, max(recommenedTex0Size.h, recommenedTex1Size.h));
+        OVR::Sizei recommenedTex0Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left,
+            hmdDesc.DefaultEyeFov[0], 1.0f);
+        OVR::Sizei recommenedTex1Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Right,
+            hmdDesc.DefaultEyeFov[1], 1.0f);        OVR::Sizei renderTargetSize(recommenedTex0Size.w + recommenedTex1Size.w, max(recommenedTex0Size.h, recommenedTex1Size.h));
 
-		ovrGLConfig cfg;
-		cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
-		cfg.OGL.Header.RTSize = OVR::Sizei(hmdDesc.Resolution.w, hmdDesc.Resolution.h);
-		cfg.OGL.Header.Multisample = 0;
-		//cfg.OGL.WglContext = glfwGetWGLContext(window);
-		cfg.OGL.Window = glfwGetWin32Window(window);
-		//cfg.OGL.GdiDc = GetDC(cfg.OGL.Window);
+        ovrGLConfig cfg;
+        cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
+        cfg.OGL.Header.RTSize = OVR::Sizei(hmdDesc.Resolution.w, hmdDesc.Resolution.h);
+        cfg.OGL.Header.Multisample = 0;
+        //cfg.OGL.WglContext = glfwGetWGLContext(window);
+        cfg.OGL.Window = glfwGetWin32Window(window);
+        //cfg.OGL.GdiDc = GetDC(cfg.OGL.Window);
 
-		if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmdDesc.DefaultEyeFov, eyeRenderDesc)) {
-			success = true;
-		}
-	}
-	NanReturnValue(JS_BOOL(success));
+        if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmdDesc.DefaultEyeFov, eyeRenderDesc)) {
+            success = true;
+
+            glGenFramebuffers(1, &fboId);
+            glBindFramebuffer(GL_FRAMEBUFFER, fboId);
+
+            GLuint texId;
+            glGenTextures(1, &texId);
+            glBindTexture(GL_TEXTURE_2D, texId);
+
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, renderTargetSize.w, renderTargetSize.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+            printf("Render target size %d %d\n", renderTargetSize.w, renderTargetSize.h);
+            // Linear filtering...
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+            GLuint depthBufferId;
+            glGenRenderbuffers(1, &depthBufferId);
+            glBindRenderbuffer(GL_RENDERBUFFER, depthBufferId);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, renderTargetSize.w, renderTargetSize.h);
+
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBufferId);
+            glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texId, 0);
+
+            GLenum drawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+            glDrawBuffers(1, drawBuffers);
+
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                printf("FRAME BUFFER NOT COMPLETE :-(\n");
+            }
+            else {
+                printf("FRAME BUFFER READY :-D\n");
+            }
+
+            ovrRecti eyeRenderViewport[2];
+            eyeRenderViewport[0].Pos  = OVR::Vector2i(0,0);
+            eyeRenderViewport[0].Size = OVR::Sizei(renderTargetSize.w / 2, renderTargetSize.h);
+            eyeRenderViewport[1].Pos  = OVR::Vector2i((renderTargetSize.w + 1) / 2, 0);
+            eyeRenderViewport[1].Size = eyeRenderViewport[0].Size;
+    
+            eyeTexture[0].OGL.Header.API = ovrRenderAPI_OpenGL;
+            eyeTexture[0].OGL.Header.TextureSize.w = renderTargetSize.w;
+            eyeTexture[0].OGL.Header.TextureSize.h = renderTargetSize.h;
+            eyeTexture[0].OGL.Header.RenderViewport = eyeRenderViewport[0];
+            eyeTexture[0].OGL.TexId = texId;
+
+            // Right eye uses the same texture, but a different rendering viewport...
+            eyeTexture[1] = eyeTexture[0];
+            eyeTexture[1].OGL.Header.RenderViewport = eyeRenderViewport[1];
+            
+            hmdEnabled = true;
+        }
+        else {
+            printf("NO HMD RENDERING SETUP :-(\n");
+        }
+    }
+    NanReturnValue(JS_BOOL(success));
 }
 
 NAN_METHOD(DestroyWindow) {
@@ -952,13 +1009,44 @@ NAN_METHOD(GetCurrentContext) {
   NanReturnValue(JS_NUM((uint64_t) window));
 }
 
+ovrEyeType eye1, eye2;
+ovrPosef eye1Pose, eye2Pose;
+
+NAN_METHOD(StartVRFrame) {
+    NanScope();
+    if (hmdEnabled) {
+        eye1 = hmdDesc.EyeRenderOrder[0];
+        eye1Pose = ovrHmd_BeginEyeRender(hmd, eye1);
+        eye2 = hmdDesc.EyeRenderOrder[1];
+        eye2Pose = ovrHmd_BeginEyeRender(hmd, eye2);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboId);
+    }
+    NanReturnUndefined();
+}
+
+NAN_METHOD(EndVRFrame) {
+    NanScope();
+    uint64_t handle = args[0]->IntegerValue();
+    if (handle) {
+        GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
+        if (hmdEnabled) {
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            ovrHmd_EndEyeRender(hmd, eye1, eye1Pose, (ovrTexture*)&(eyeTexture[0]));
+            ovrHmd_EndEyeRender(hmd, eye2, eye2Pose, (ovrTexture*)&(eyeTexture[1]));
+            ovrHmd_EndFrame(hmd);
+        } else {
+            glfwSwapBuffers(window);
+        }
+    }
+    NanReturnUndefined();
+}
+
 NAN_METHOD(SwapBuffers) {
   NanScope();
   uint64_t handle=args[0]->IntegerValue();
   if(handle) {
     GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
-		//ovrHmd_EndFrame(hmd);
-    //glfwSwapBuffers(window);
+    glfwSwapBuffers(window);
   }
   NanReturnUndefined();
 }
@@ -1005,8 +1093,10 @@ void init(Handle<Object> target) {
   JS_GLFW_SET_METHOD(GetVersion);
   JS_GLFW_SET_METHOD(GetVersionString);
 
-	/* Rift support */
-	JS_GLFW_SET_METHOD(EnableHMDRendering);
+    /* Rift support */
+    JS_GLFW_SET_METHOD(EnableHMDRendering);
+    JS_GLFW_SET_METHOD(StartVRFrame);
+    JS_GLFW_SET_METHOD(EndVRFrame);
 
   /* Time */
   JS_GLFW_SET_METHOD(GetTime);
