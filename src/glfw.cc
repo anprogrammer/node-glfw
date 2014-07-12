@@ -691,6 +691,7 @@ NAN_METHOD(glfw_CreateWindow) {
 ovrGLTexture eyeTexture[2];
 GLuint fboId;
 bool hmdEnabled = false;
+OVR::Sizei renderTargetSize;
 
 NAN_METHOD(EnableHMDRendering) {
     NanScope();
@@ -703,15 +704,13 @@ NAN_METHOD(EnableHMDRendering) {
         OVR::Sizei recommenedTex0Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left,
             hmdDesc.DefaultEyeFov[0], 1.0f);
         OVR::Sizei recommenedTex1Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Right,
-            hmdDesc.DefaultEyeFov[1], 1.0f);        OVR::Sizei renderTargetSize(recommenedTex0Size.w + recommenedTex1Size.w, max(recommenedTex0Size.h, recommenedTex1Size.h));
+            hmdDesc.DefaultEyeFov[1], 1.0f);        renderTargetSize = OVR::Sizei(recommenedTex0Size.w + recommenedTex1Size.w, max(recommenedTex0Size.h, recommenedTex1Size.h));
 
         ovrGLConfig cfg;
         cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
         cfg.OGL.Header.RTSize = OVR::Sizei(hmdDesc.Resolution.w, hmdDesc.Resolution.h);
         cfg.OGL.Header.Multisample = 0;
-        //cfg.OGL.WglContext = glfwGetWGLContext(window);
         cfg.OGL.Window = glfwGetWin32Window(window);
-        //cfg.OGL.GdiDc = GetDC(cfg.OGL.Window);
 
         if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmdDesc.DefaultEyeFov, eyeRenderDesc)) {
             success = true;
@@ -1012,14 +1011,29 @@ NAN_METHOD(GetCurrentContext) {
 ovrEyeType eye1, eye2;
 ovrPosef eye1Pose, eye2Pose;
 
+NAN_METHOD(GetHMDTargetSize) {
+    NanScope();
+    Local<Object> res = Object::New();
+    res->Set(String::New("x"), Number::New(renderTargetSize.w));
+    res->Set(String::New("y"), Number::New(renderTargetSize.h));
+    NanReturnValue(res);
+}
+
+NAN_METHOD(GetHMDFboId) {
+    NanScope();
+    NanReturnValue(Number::New(fboId));
+}
+
 NAN_METHOD(StartVRFrame) {
     NanScope();
     if (hmdEnabled) {
-        eye1 = hmdDesc.EyeRenderOrder[0];
+        eye1 = hmdDesc.EyeRenderOrder[ovrEye_Left];
         eye1Pose = ovrHmd_BeginEyeRender(hmd, eye1);
-        eye2 = hmdDesc.EyeRenderOrder[1];
+        eye2 = hmdDesc.EyeRenderOrder[ovrEye_Right];
         eye2Pose = ovrHmd_BeginEyeRender(hmd, eye2);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboId);
+        
+       
+        //glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboId);
     }
     NanReturnUndefined();
 }
@@ -1031,14 +1045,45 @@ NAN_METHOD(EndVRFrame) {
         GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
         if (hmdEnabled) {
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            ovrHmd_EndEyeRender(hmd, eye1, eye1Pose, (ovrTexture*)&(eyeTexture[0]));
-            ovrHmd_EndEyeRender(hmd, eye2, eye2Pose, (ovrTexture*)&(eyeTexture[1]));
+            ovrHmd_EndEyeRender(hmd, eye1, eye1Pose, (ovrTexture*)&(eyeTexture[ovrEye_Left]));
+            ovrHmd_EndEyeRender(hmd, eye2, eye2Pose, (ovrTexture*)&(eyeTexture[ovrEye_Right]));
             ovrHmd_EndFrame(hmd);
         } else {
             glfwSwapBuffers(window);
         }
     }
     NanReturnUndefined();
+}
+
+NAN_METHOD(GetEyeViewAdjust) {
+    NanScope();
+    Local<Array> js_mat_values = Array::New(3);
+    
+    int idx = args[0]->IntegerValue();
+    if (idx == 0 || idx == 1) {
+        auto src = eyeRenderDesc[idx == 0 ? ovrEye_Left : ovrEye_Right].ViewAdjust;
+        js_mat_values->Set(JS_INT(0), JS_NUM(src.x));
+        js_mat_values->Set(JS_INT(1), JS_NUM(src.y));
+        js_mat_values->Set(JS_INT(2), JS_NUM(src.z));
+    }
+    NanReturnValue(js_mat_values);
+}
+
+NAN_METHOD(GetProjectionMatrix) {
+    NanScope();
+    int idx = args[0]->IntegerValue();
+    
+    Local<Array> js_mat_values = Array::New(16);
+    
+    if (idx == 0 || idx == 1) {
+         auto src = eyeRenderDesc[idx == 0 ? ovrEye_Left : ovrEye_Right];
+         auto proj = ovrMatrix4f_Projection(src.Fov,
+                0.01f, 10000.0f, true);
+         for (int i = 0; i < 16; i++) {
+            js_mat_values->Set(JS_INT(i), JS_NUM(proj.M[i%4][i/4]));
+         }
+    }
+    NanReturnValue(js_mat_values);
 }
 
 NAN_METHOD(SwapBuffers) {
@@ -1093,10 +1138,14 @@ void init(Handle<Object> target) {
   JS_GLFW_SET_METHOD(GetVersion);
   JS_GLFW_SET_METHOD(GetVersionString);
 
-    /* Rift support */
-    JS_GLFW_SET_METHOD(EnableHMDRendering);
-    JS_GLFW_SET_METHOD(StartVRFrame);
-    JS_GLFW_SET_METHOD(EndVRFrame);
+  /* Rift support */
+  JS_GLFW_SET_METHOD(EnableHMDRendering);
+  JS_GLFW_SET_METHOD(StartVRFrame);
+  JS_GLFW_SET_METHOD(EndVRFrame);
+  JS_GLFW_SET_METHOD(GetHMDTargetSize);
+  JS_GLFW_SET_METHOD(GetHMDFboId);
+  JS_GLFW_SET_METHOD(GetEyeViewAdjust);
+  JS_GLFW_SET_METHOD(GetProjectionMatrix);
 
   /* Time */
   JS_GLFW_SET_METHOD(GetTime);
