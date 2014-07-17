@@ -25,6 +25,7 @@ namespace glfw {
 ovrHmd hmd = 0;
 ovrHmdDesc hmdDesc;
 ovrEyeRenderDesc eyeRenderDesc[2];
+ovrRecti eyeRenderViewport[2];
 
 NAN_METHOD(Init) {
   NanScope();
@@ -709,7 +710,7 @@ NAN_METHOD(EnableHMDRendering) {
         ovrGLConfig cfg;
         cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
         cfg.OGL.Header.RTSize = OVR::Sizei(hmdDesc.Resolution.w, hmdDesc.Resolution.h);
-        cfg.OGL.Header.Multisample = 0;
+        cfg.OGL.Header.Multisample = 4;
         cfg.OGL.Window = glfwGetWin32Window(window);
 
         if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmdDesc.DefaultEyeFov, eyeRenderDesc)) {
@@ -746,7 +747,6 @@ NAN_METHOD(EnableHMDRendering) {
                 printf("FRAME BUFFER READY :-D\n");
             }
 
-            ovrRecti eyeRenderViewport[2];
             eyeRenderViewport[0].Pos  = OVR::Vector2i(0,0);
             eyeRenderViewport[0].Size = OVR::Sizei(renderTargetSize.w / 2, renderTargetSize.h);
             eyeRenderViewport[1].Pos  = OVR::Vector2i((renderTargetSize.w + 1) / 2, 0);
@@ -1008,8 +1008,8 @@ NAN_METHOD(GetCurrentContext) {
   NanReturnValue(JS_NUM((uint64_t) window));
 }
 
-ovrEyeType eye1, eye2;
-ovrPosef eye1Pose, eye2Pose;
+ovrEyeType eyes[2];
+ovrPosef eyePoses[2];
 
 NAN_METHOD(GetHMDTargetSize) {
     NanScope();
@@ -1024,16 +1024,21 @@ NAN_METHOD(GetHMDFboId) {
     NanReturnValue(Number::New(fboId));
 }
 
-NAN_METHOD(StartVRFrame) {
+NAN_METHOD(StartVREye) {
     NanScope();
-    if (hmdEnabled) {
-        eye1 = hmdDesc.EyeRenderOrder[ovrEye_Left];
-        eye1Pose = ovrHmd_BeginEyeRender(hmd, eye1);
-        eye2 = hmdDesc.EyeRenderOrder[ovrEye_Right];
-        eye2Pose = ovrHmd_BeginEyeRender(hmd, eye2);
-        
-       
-        //glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboId);
+    int idx = args[0]->IntegerValue();
+    if (hmdEnabled && (idx == 0 || idx == 1)) {
+        eyes[idx] = hmdDesc.EyeRenderOrder[idx];
+        eyePoses[idx] = ovrHmd_BeginEyeRender(hmd, eyes[idx]);
+    }
+    NanReturnUndefined();
+}
+
+NAN_METHOD(EndVREye) {
+    NanScope();
+    int idx = args[0]->IntegerValue();
+    if (hmdEnabled && (idx == 0 || idx == 1)) {
+        ovrHmd_EndEyeRender(hmd, eyes[idx], eyePoses[idx], (ovrTexture*)&(eyeTexture[idx]));
     }
     NanReturnUndefined();
 }
@@ -1045,8 +1050,6 @@ NAN_METHOD(EndVRFrame) {
         GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
         if (hmdEnabled) {
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            ovrHmd_EndEyeRender(hmd, eye1, eye1Pose, (ovrTexture*)&(eyeTexture[ovrEye_Left]));
-            ovrHmd_EndEyeRender(hmd, eye2, eye2Pose, (ovrTexture*)&(eyeTexture[ovrEye_Right]));
             ovrHmd_EndFrame(hmd);
         } else {
             glfwSwapBuffers(window);
@@ -1055,13 +1058,56 @@ NAN_METHOD(EndVRFrame) {
     NanReturnUndefined();
 }
 
+NAN_METHOD(GetEyeViewport) {
+    NanScope();
+    Local<Array> js_mat_values = Array::New(4);
+    int idx = args[0]->IntegerValue();
+    if (idx == 0 || idx == 1) {
+        auto src = eyeRenderViewport[eyes[idx]];
+        js_mat_values->Set(JS_INT(0), JS_NUM(src.Pos.x));
+        js_mat_values->Set(JS_INT(1), JS_NUM(src.Pos.y));
+        js_mat_values->Set(JS_INT(2), JS_NUM(src.Size.w));
+        js_mat_values->Set(JS_INT(3), JS_NUM(src.Size.h));
+    }
+    NanReturnValue(js_mat_values);
+}
+
 NAN_METHOD(GetEyeViewAdjust) {
     NanScope();
     Local<Array> js_mat_values = Array::New(3);
     
     int idx = args[0]->IntegerValue();
     if (idx == 0 || idx == 1) {
-        auto src = eyeRenderDesc[idx == 0 ? ovrEye_Left : ovrEye_Right].ViewAdjust;
+        auto src = eyeRenderDesc[eyes[idx]].ViewAdjust;
+        js_mat_values->Set(JS_INT(0), JS_NUM(src.x));
+        js_mat_values->Set(JS_INT(1), JS_NUM(src.y));
+        js_mat_values->Set(JS_INT(2), JS_NUM(src.z));
+    }
+    NanReturnValue(js_mat_values);
+}
+
+NAN_METHOD(GetHeadOrientation) {
+    NanScope();
+    Local<Array> js_mat_values = Array::New(4);
+    
+    int idx = args[0]->IntegerValue();
+    if (idx == 0 || idx == 1) {
+        auto src = eyePoses[eyes[idx]].Orientation;
+        js_mat_values->Set(JS_INT(0), JS_NUM(src.x));
+        js_mat_values->Set(JS_INT(1), JS_NUM(src.y));
+        js_mat_values->Set(JS_INT(2), JS_NUM(src.z));
+        js_mat_values->Set(JS_INT(3), JS_NUM(src.w));
+    }
+    NanReturnValue(js_mat_values);
+}
+
+NAN_METHOD(GetHeadPosition) {
+    NanScope();
+    Local<Array> js_mat_values = Array::New(3);
+    
+    int idx = args[0]->IntegerValue();
+    if (idx == 0 || idx == 1) {
+        auto src = eyePoses[eyes[idx]].Position;
         js_mat_values->Set(JS_INT(0), JS_NUM(src.x));
         js_mat_values->Set(JS_INT(1), JS_NUM(src.y));
         js_mat_values->Set(JS_INT(2), JS_NUM(src.z));
@@ -1076,7 +1122,7 @@ NAN_METHOD(GetProjectionMatrix) {
     Local<Array> js_mat_values = Array::New(16);
     
     if (idx == 0 || idx == 1) {
-         auto src = eyeRenderDesc[idx == 0 ? ovrEye_Left : ovrEye_Right];
+         auto src = eyeRenderDesc[eyes[idx]];
          auto proj = ovrMatrix4f_Projection(src.Fov,
                 0.01f, 10000.0f, true);
          for (int i = 0; i < 16; i++) {
@@ -1140,12 +1186,16 @@ void init(Handle<Object> target) {
 
   /* Rift support */
   JS_GLFW_SET_METHOD(EnableHMDRendering);
-  JS_GLFW_SET_METHOD(StartVRFrame);
+  JS_GLFW_SET_METHOD(StartVREye);
+  JS_GLFW_SET_METHOD(EndVREye);
   JS_GLFW_SET_METHOD(EndVRFrame);
   JS_GLFW_SET_METHOD(GetHMDTargetSize);
   JS_GLFW_SET_METHOD(GetHMDFboId);
   JS_GLFW_SET_METHOD(GetEyeViewAdjust);
   JS_GLFW_SET_METHOD(GetProjectionMatrix);
+  JS_GLFW_SET_METHOD(GetEyeViewport);
+  JS_GLFW_SET_METHOD(GetHeadPosition);
+  JS_GLFW_SET_METHOD(GetHeadOrientation);
 
   /* Time */
   JS_GLFW_SET_METHOD(GetTime);
