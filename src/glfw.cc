@@ -33,7 +33,7 @@ NAN_METHOD(Init) {
         ovr_Initialize();
         hmd = ovrHmd_Create(0);
         if (hmd == 0) {
-            hmd = ovrHmd_CreateDebug(ovrHmd_DK2);
+            hmd = ovrHmd_CreateDebug(ovrHmd_DK1);
         }
 
         ovrHmd_ConfigureTracking(hmd, ovrTrackingCap_Orientation | ovrTrackingCap_MagYawCorrection | ovrTrackingCap_Position, 0);
@@ -709,13 +709,18 @@ NAN_METHOD(EnableHMDRendering) {
         cfg.OGL.Header.RTSize = OVR::Sizei(hmd->Resolution.w, hmd->Resolution.h);
         cfg.OGL.Header.Multisample = 4;
         cfg.OGL.Window = glfwGetWin32Window(window);
-        cfg.OGL.DC = GetDC(cfg.OGL.Window);
+        cfg.OGL.DC = NULL;
 
         if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmd->DefaultEyeFov, eyeRenderDesc)) {
             success = true;
             
-            ovrHmd_AttachToWindow(hmd, glfwGetWin32Window(window), NULL, NULL);
-
+            if (!(hmd->HmdCaps & ovrHmdCap_ExtendDesktop)) {
+                printf("Direct Mode Enabled\n");
+                ovrHmd_AttachToWindow(hmd, glfwGetWin32Window(window), NULL, NULL);
+            } else {
+                printf("Extend Desktop Mode in Use\n");
+            }
+            
             glGenFramebuffers(1, &fboId);
             glBindFramebuffer(GL_FRAMEBUFFER, fboId);
 
@@ -1088,7 +1093,9 @@ NAN_METHOD(EndVRFrame) {
         GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
         if (hmdEnabled) {
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            ovrHmd_EndFrame(hmd, headPose, &eyeTexture[0].Texture);
+            glDisable(GL_CULL_FACE);
+            glDisable(GL_DEPTH_TEST);
+            ovrHmd_EndFrame(hmd, headPose, (ovrTexture*)&eyeTexture);
         } else {
             glfwSwapBuffers(window);
         }
