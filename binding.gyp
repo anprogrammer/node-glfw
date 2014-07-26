@@ -32,7 +32,8 @@
             'glfw3dll.lib', 
             'opengl32.lib',
             'winmm.lib',
-            'libovr.lib'
+            'libovr.lib',
+            'Ws2_32.lib'
             ],
           'defines' : [
             'WIN32_LEAN_AND_MEAN',

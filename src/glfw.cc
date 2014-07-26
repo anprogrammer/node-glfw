@@ -23,7 +23,6 @@ namespace glfw {
 
 /* @Module: GLFW initialization, termination and version querying */
 ovrHmd hmd = 0;
-ovrHmdDesc hmdDesc;
 ovrEyeRenderDesc eyeRenderDesc[2];
 ovrRecti eyeRenderViewport[2];
 
@@ -37,9 +36,7 @@ NAN_METHOD(Init) {
             hmd = ovrHmd_CreateDebug(ovrHmd_DK2);
         }
 
-        ovrHmd_GetDesc(hmd, &hmdDesc);
-        ovrHmd_StartSensor(hmd, ovrSensorCap_Orientation | ovrSensorCap_YawCorrection |
-            ovrSensorCap_Position, ovrSensorCap_Orientation);
+        ovrHmd_ConfigureTracking(hmd, ovrTrackingCap_Orientation | ovrTrackingCap_MagYawCorrection | ovrTrackingCap_Position, 0);
     }
   NanReturnValue(JS_BOOL(initSuccessful));
 }
@@ -703,18 +700,21 @@ NAN_METHOD(EnableHMDRendering) {
         GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
 
         OVR::Sizei recommenedTex0Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Left,
-            hmdDesc.DefaultEyeFov[0], 1.0f);
+            hmd->DefaultEyeFov[0], 1.0f);
         OVR::Sizei recommenedTex1Size = ovrHmd_GetFovTextureSize(hmd, ovrEye_Right,
-            hmdDesc.DefaultEyeFov[1], 1.0f);        renderTargetSize = OVR::Sizei(recommenedTex0Size.w + recommenedTex1Size.w, max(recommenedTex0Size.h, recommenedTex1Size.h));
+            hmd->DefaultEyeFov[1], 1.0f);        renderTargetSize = OVR::Sizei(recommenedTex0Size.w + recommenedTex1Size.w, max(recommenedTex0Size.h, recommenedTex1Size.h));
 
         ovrGLConfig cfg;
         cfg.OGL.Header.API = ovrRenderAPI_OpenGL;
-        cfg.OGL.Header.RTSize = OVR::Sizei(hmdDesc.Resolution.w, hmdDesc.Resolution.h);
+        cfg.OGL.Header.RTSize = OVR::Sizei(hmd->Resolution.w, hmd->Resolution.h);
         cfg.OGL.Header.Multisample = 4;
         cfg.OGL.Window = glfwGetWin32Window(window);
+        cfg.OGL.DC = GetDC(cfg.OGL.Window);
 
-        if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmdDesc.DefaultEyeFov, eyeRenderDesc)) {
+        if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmd->DefaultEyeFov, eyeRenderDesc)) {
             success = true;
+            
+            ovrHmd_AttachToWindow(hmd, glfwGetWin32Window(window), NULL, NULL);
 
             glGenFramebuffers(1, &fboId);
             glBindFramebuffer(GL_FRAMEBUFFER, fboId);
@@ -1009,7 +1009,8 @@ NAN_METHOD(GetCurrentContext) {
 }
 
 ovrEyeType eyes[2];
-ovrPosef eyePoses[2];
+ovrPosef headPose[2];
+ovrFrameTiming hmdFrameTiming;
 
 NAN_METHOD(GetHMDTargetSize) {
     NanScope();
@@ -1024,21 +1025,58 @@ NAN_METHOD(GetHMDFboId) {
     NanReturnValue(Number::New(fboId));
 }
 
-NAN_METHOD(StartVREye) {
+NAN_METHOD(IsVRSafetyWarningVisible) {
     NanScope();
-    int idx = args[0]->IntegerValue();
-    if (hmdEnabled && (idx == 0 || idx == 1)) {
-        eyes[idx] = hmdDesc.EyeRenderOrder[idx];
-        eyePoses[idx] = ovrHmd_BeginEyeRender(hmd, eyes[idx]);
+    
+    ovrHSWDisplayState hswDisplayState;
+    ovrHmd_GetHSWDisplayState(hmd, &hswDisplayState);
+    
+    NanReturnValue(Boolean::New(hswDisplayState.Displayed));
+}
+
+NAN_METHOD(StartVRFrame) {
+    NanScope();
+    
+    uint64_t handle = args[0]->IntegerValue();
+    if (handle) {
+        GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
+        
+        ovrHSWDisplayState hswDisplayState;
+        ovrHmd_GetHSWDisplayState(hmd, &hswDisplayState);
+        if (hswDisplayState.Displayed)
+        {
+            bool dismiss = false;
+            for (int i = 32; i < 348; i++) {
+                dismiss = dismiss || glfwGetKey(window, i) == GLFW_PRESS;
+            }
+            
+            if (glfwJoystickPresent(0)) {
+                int btnCount;
+                const unsigned char* buttons = glfwGetJoystickButtons(0,  &btnCount);
+                if (buttons) {
+                    for (int i = 0; i < btnCount; i++) {
+                        dismiss = dismiss || buttons[i];
+                    }
+                }
+            }
+            
+            if (dismiss) {
+                ovrHmd_DismissHSWDisplay(hmd);
+            }
+        }
+        
+        hmdFrameTiming = ovrHmd_BeginFrame(hmd, 0);
     }
     NanReturnUndefined();
 }
 
-NAN_METHOD(EndVREye) {
+NAN_METHOD(StartVREye) {
     NanScope();
     int idx = args[0]->IntegerValue();
     if (hmdEnabled && (idx == 0 || idx == 1)) {
-        ovrHmd_EndEyeRender(hmd, eyes[idx], eyePoses[idx], (ovrTexture*)&(eyeTexture[idx]));
+        ovrEyeType eye = hmd->EyeRenderOrder[idx];
+        eyes[idx] = eye;
+        headPose[eye] = ovrHmd_GetEyePose(hmd, eye);
     }
     NanReturnUndefined();
 }
@@ -1050,7 +1088,7 @@ NAN_METHOD(EndVRFrame) {
         GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
         if (hmdEnabled) {
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            ovrHmd_EndFrame(hmd);
+            ovrHmd_EndFrame(hmd, headPose, &eyeTexture[0].Texture);
         } else {
             glfwSwapBuffers(window);
         }
@@ -1092,7 +1130,7 @@ NAN_METHOD(GetHeadOrientation) {
     
     int idx = args[0]->IntegerValue();
     if (idx == 0 || idx == 1) {
-        auto src = eyePoses[eyes[idx]].Orientation;
+        auto src = headPose[eyes[idx]].Orientation;
         js_mat_values->Set(JS_INT(0), JS_NUM(src.x));
         js_mat_values->Set(JS_INT(1), JS_NUM(src.y));
         js_mat_values->Set(JS_INT(2), JS_NUM(src.z));
@@ -1107,7 +1145,7 @@ NAN_METHOD(GetHeadPosition) {
     
     int idx = args[0]->IntegerValue();
     if (idx == 0 || idx == 1) {
-        auto src = eyePoses[eyes[idx]].Position;
+        auto src = headPose[eyes[idx]].Position;
         js_mat_values->Set(JS_INT(0), JS_NUM(src.x));
         js_mat_values->Set(JS_INT(1), JS_NUM(src.y));
         js_mat_values->Set(JS_INT(2), JS_NUM(src.z));
@@ -1186,8 +1224,9 @@ void init(Handle<Object> target) {
 
   /* Rift support */
   JS_GLFW_SET_METHOD(EnableHMDRendering);
+  JS_GLFW_SET_METHOD(IsVRSafetyWarningVisible);
   JS_GLFW_SET_METHOD(StartVREye);
-  JS_GLFW_SET_METHOD(EndVREye);
+  JS_GLFW_SET_METHOD(StartVRFrame);
   JS_GLFW_SET_METHOD(EndVRFrame);
   JS_GLFW_SET_METHOD(GetHMDTargetSize);
   JS_GLFW_SET_METHOD(GetHMDFboId);

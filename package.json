@@ -1,7 +1,7 @@
 {
-  "name": "node-glfw",
+  "name": "node-glfw-ovr",
   "version": "0.3.1",
-  "description": "A NodeJS wrapper around GLFW 3.x library",
+  "description": "A NodeJS wrapper around GLFW 3.x library which integrates libOVR support.  Don't use this plz.",
   "main": "index.js",
   "author": "Mikael Bourges-Sevenier <mikeseven@gmail.com>",
   "keywords": [
@@ -15,17 +15,22 @@
       "name": "Mikael Bourges-Sevenier",
       "email": "mikeseven@gmail.com",
       "twitter": "msevenier"
+    },
+    {
+      "name": "Daniel Church",
+      "email": "CrazyNorman@gmail.com",
+      "github": "https://github.com/anprogrammer"
     }
   ],
   "licenses": [
     {
       "type": "BSD",
-      "url": "http://github.com/mikeseven/node-glfw/raw/master/LICENSES"
+      "url": "http://github.com/anprogrammer/node-glfw-ovr/raw/master/LICENSES"
     }
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/mikeseven/node-glfw.git"
+    "url": "https://github.com/anprogrammer/node-glfw-ovr.git"
   },
   "directories": {
     "src": "src",
