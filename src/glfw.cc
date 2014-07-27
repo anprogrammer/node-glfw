@@ -1057,6 +1057,13 @@ NAN_METHOD(IsVRSafetyWarningVisible) {
     NanReturnValue(Boolean::New(hswDisplayState.Displayed));
 }
 
+NAN_METHOD(ResetVROrientation) {
+    NanScope();
+    ovrHmd_RecenterPose(hmd);
+    printf("VR Orientation Reset\n");
+    NanReturnUndefined();
+}
+
 NAN_METHOD(StartVRFrame) {
     NanScope();
     
@@ -1260,6 +1267,7 @@ void init(Handle<Object> target) {
   JS_GLFW_SET_METHOD(GetEyeViewport);
   JS_GLFW_SET_METHOD(GetHeadPosition);
   JS_GLFW_SET_METHOD(GetHeadOrientation);
+  JS_GLFW_SET_METHOD(ResetVROrientation);
 
   /* Time */
   JS_GLFW_SET_METHOD(GetTime);
