@@ -580,15 +580,33 @@ std::string buttonToString(unsigned char c) {
 
 NAN_METHOD(GetJoystickAxes) {
   NanScope();
-  int joy = args[0]->Uint32Value();
+  /* TODO:  I've seriously hacked up this method, because of how slow joystick detection is
+   * In the future, turn this function back into a simple wrapper, move joystick detection logic
+   * into game.
+   */
+  static bool joystickIsPresent = false;
+  static int joyFrame = 0;
+  
+  int joy = 0;
   int count;
-  const float *axisValues = glfwGetJoystickAxes(joy, &count);
   string response = "";
-  for (int i = 0; i < count; i++) {
-    response.append(floatToString(axisValues[i]));
-    response.append(","); //Separator
+  
+  if (joyFrame%120 == 0 && !joystickIsPresent) {
+    joystickIsPresent = glfwJoystickPresent(joy);
   }
-
+  joyFrame++;
+  
+  if (joystickIsPresent) {
+      const float *axisValues = glfwGetJoystickAxes(joy, &count);
+      if (count == 0 || axisValues == NULL) {
+        joystickIsPresent = false;
+      } else {
+          for (int i = 0; i < count; i++) {
+            response.append(floatToString(axisValues[i]));
+            response.append(","); //Separator
+          }
+      }
+   }
   NanReturnValue(JS_STR(response.c_str()));
 }
 
