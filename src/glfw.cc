@@ -33,10 +33,8 @@ NAN_METHOD(Init) {
         ovr_Initialize();
         hmd = ovrHmd_Create(0);
         if (hmd == 0) {
-            hmd = ovrHmd_CreateDebug(ovrHmd_DK1);
+            hmd = ovrHmd_CreateDebug(ovrHmd_DK2);
         }
-
-        ovrHmd_ConfigureTracking(hmd, ovrTrackingCap_Orientation | ovrTrackingCap_MagYawCorrection | ovrTrackingCap_Position, 0);
     }
   NanReturnValue(JS_BOOL(initSuccessful));
 }
@@ -711,9 +709,11 @@ OVR::Sizei renderTargetSize;
 
 NAN_METHOD(EnableHMDRendering) {
     NanScope();
+    glfwSwapInterval(0);
     printf("EnableHMDRendering called\n");
     bool success = false;
     uint64_t handle = args[0]->IntegerValue();
+    bool disableVsync = args[1]->BooleanValue();
     if (handle) {
         GLFWwindow* window = reinterpret_cast<GLFWwindow*>(handle);
 
@@ -729,7 +729,10 @@ NAN_METHOD(EnableHMDRendering) {
         cfg.OGL.Window = glfwGetWin32Window(window);
         cfg.OGL.DC = NULL;
 
-        if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic, hmd->DefaultEyeFov, eyeRenderDesc)) {
+        if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic | ovrDistortionCap_Vignette | ovrDistortionCap_TimeWarp | ovrDistortionCap_Overdrive, hmd->DefaultEyeFov, eyeRenderDesc)) {
+            ovrHmd_SetEnabledCaps(hmd, ovrHmdCap_LowPersistence | ovrHmdCap_DynamicPrediction | (disableVsync ? ovrHmdCap_NoVSync : 0));
+            ovrHmd_ConfigureTracking(hmd, ovrTrackingCap_Orientation | ovrTrackingCap_MagYawCorrection | ovrTrackingCap_Position, 0);  
+            
             success = true;
             
             if (!(hmd->HmdCaps & ovrHmdCap_ExtendDesktop)) {
@@ -1060,7 +1063,6 @@ NAN_METHOD(IsVRSafetyWarningVisible) {
 NAN_METHOD(ResetVROrientation) {
     NanScope();
     ovrHmd_RecenterPose(hmd);
-    printf("VR Orientation Reset\n");
     NanReturnUndefined();
 }
 
@@ -1215,7 +1217,7 @@ NAN_METHOD(SwapBuffers) {
 NAN_METHOD(SwapInterval) {
   NanScope();
   int interval=args[0]->Int32Value();
-  glfwSwapInterval(interval);
+  //glfwSwapInterval(interval);
   NanReturnUndefined();
 }
 
