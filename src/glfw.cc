@@ -637,12 +637,18 @@ NAN_METHOD(glfw_CreateWindow) {
   String::Utf8Value str(args[2]->ToString());
   int monitor_idx = args[3]->Uint32Value();
   
+  if (hmd) {
+    width = hmd->Resolution.w;
+    height = hmd->Resolution.h;
+  }
+  
   GLFWwindow* window = NULL;
   GLFWmonitor **monitors = NULL, *monitor = NULL;
   int monitor_count;
   if(args.Length() >= 4 && monitor_idx >= 0){
     monitors = glfwGetMonitors(&monitor_count);
     if(monitor_idx >= monitor_count){
+        printf("Whoops moon %d >= %d\n", monitor_idx, monitor_count);
       return NanThrowError("Invalid monitor");
     }
     monitor = monitors[monitor_idx];
@@ -729,7 +735,7 @@ NAN_METHOD(EnableHMDRendering) {
         cfg.OGL.Window = glfwGetWin32Window(window);
         cfg.OGL.DC = NULL;
 
-        if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic | ovrDistortionCap_Vignette | ovrDistortionCap_TimeWarp | ovrDistortionCap_Overdrive, hmd->DefaultEyeFov, eyeRenderDesc)) {
+        if (ovrHmd_ConfigureRendering(hmd, &cfg.Config, ovrDistortionCap_Chromatic | ovrDistortionCap_Vignette | ovrDistortionCap_TimeWarp, hmd->DefaultEyeFov, eyeRenderDesc)) {
             ovrHmd_SetEnabledCaps(hmd, ovrHmdCap_LowPersistence | ovrHmdCap_DynamicPrediction | (disableVsync ? ovrHmdCap_NoVSync : 0));
             ovrHmd_ConfigureTracking(hmd, ovrTrackingCap_Orientation | ovrTrackingCap_MagYawCorrection | ovrTrackingCap_Position, 0);  
             
